@@ -2,3 +2,4 @@ black
 ipython
 ipdb
 flake8
+boto3

@@ -3,12 +3,12 @@ import json
 import logging
 import os
 import os.path
-import subprocess
-import sys
 import tempfile
 import webbrowser
 import xml
 import xml.dom.minidom
+import boto3
+import botocore
 
 from urllib.parse import urlparse
 from xml.parsers.expat import ExpatError
@@ -17,7 +17,8 @@ OUTPUT_DIR = os.environ.get('OUTPUT_DIR', tempfile.gettempdir())
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
-
+S3 = boto3.resource('s3')
+BUCKET_NAME = 'tsh-provider-session-logs'
 
 def xml_formatter(text):
     try:
@@ -67,25 +68,16 @@ Files will be stored in {OUTPUT_DIR}
     def do_show(self, line):
         """Show s3 object in the browser tab."""
         parse_result = urlparse(line)
-        path = parse_result.path.strip('/')
+        path = parse_result.path.strip('/').replace("tsh-provider-session-logs/", "")
         filename = os.path.basename(path)
-        s3_uri = f's3://{path}'
-        logger.debug('Open s3 uri %s', s3_uri)
         filepath = os.path.abspath(os.path.join(OUTPUT_DIR, filename))
-        with open(filepath, mode='w+') as f:
-            logger.debug('Output file is %s', f.name)
-            try:
-                subprocess.run(
-                    ['s3cmd', 'get', s3_uri, f.name, '--force'],
-                    stdin=sys.stdin,
-                    stdout=sys.stdout,
-                    stderr=sys.stderr,
-                    check=True,
-                )
-            except subprocess.CalledProcessError as err:
-                print(f'Command "{err.cmd}" failed!')
-                return
-
+        
+        try:
+            S3.Bucket(BUCKET_NAME).download_file(f'{path}', f'{filepath}')
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == "404":
+                print("The object does not exist.")
+        with open(filepath, mode='r+') as f:
             f.seek(0)
             content = f.read()
             for formatter in (
